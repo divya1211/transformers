@@ -1133,10 +1133,8 @@ class TFT5Model(TFT5PreTrainedModel):
 
             >>> input_ids = tokenizer("Studies have been shown that owning a dog is good for you", return_tensors="tf").input_ids  # Batch size 1
             >>> decoder_input_ids = tokenizer("Studies show that", return_tensors="tf").input_ids  # Batch size 1
-
-            >>> # forward pass
             >>> outputs = model(input_ids, decoder_input_ids=decoder_input_ids)
-            >>> last_hidden_states = outputs.last_hidden_state
+
 
         """
         # FutureWarning: head_mask was separated into two input args - head_mask, decoder_head_mask
@@ -1323,18 +1321,15 @@ class TFT5ForConditionalGeneration(TFT5PreTrainedModel, TFCausalLanguageModeling
             >>> tokenizer = T5Tokenizer.from_pretrained('t5-small')
             >>> model = TFT5ForConditionalGeneration.from_pretrained('t5-small')
 
-            >>> # training
             >>> inputs = tokenizer('The <extra_id_0> walks in <extra_id_1> park', return_tensors='tf').input_ids
-            >>> labels = tokenizer('<extra_id_0> cute dog <extra_id_1> the <extra_id_2>', return_tensors='tf').input_ids
+            >>> labels = tokenizer('<extra_id_0> cute dog <extra_id_1> the <extra_id_2> </s>', return_tensors='tf').input_ids
             >>> outputs = model(inputs, labels=labels)
             >>> loss = outputs.loss
             >>> logits = outputs.logits
 
-            >>> # inference
-            >>> inputs = tokenizer("summarize: studies have shown that owning a dog is good for you", return_tensors="tf").input_ids  # Batch size 1
-            >>> outputs = model.generate(inputs)
-            >>> print(tokenizer.decode(outputs[0], skip_special_tokens=True))
-            >>> # studies have shown that owning a dog is good for you
+            >>> inputs = tokenizer("summarize: studies have shown that owning a dog is good for you ", return_tensors="tf").input_ids  # Batch size 1
+
+            >>> result = model.generate(inputs)
 
         """
         # FutureWarning: head_mask was separated into two input args - head_mask, decoder_head_mask
@@ -1411,8 +1406,6 @@ class TFT5ForConditionalGeneration(TFT5PreTrainedModel, TFCausalLanguageModeling
             logits = self.shared(sequence_output, mode="linear")
         else:
             logits = self.lm_head(sequence_output)
-
-        logits = tf.cast(logits, tf.float32)
 
         loss = None if inputs["labels"] is None else self.compute_loss(inputs["labels"], logits)
 
@@ -1576,13 +1569,14 @@ class TFT5EncoderModel(TFT5PreTrainedModel):
 
         Examples::
 
-            >>> from transformers import T5Tokenizer, TFT5EncoderModel
+            >>> from transformers import T5Tokenizer, TFT5Model
 
             >>> tokenizer = T5Tokenizer.from_pretrained('t5-small')
             >>> model = TFT5EncoderModel.from_pretrained('t5-small')
 
             >>> input_ids = tokenizer("Studies have been shown that owning a dog is good for you", return_tensors="tf").input_ids  # Batch size 1
             >>> outputs = model(input_ids)
+
 
         """
         inputs = input_processing(

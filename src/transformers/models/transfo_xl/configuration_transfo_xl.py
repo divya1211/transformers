@@ -106,12 +106,6 @@ class TransfoXLConfig(PretrainedConfig):
 
     model_type = "transfo-xl"
     keys_to_ignore_at_inference = ["mems"]
-    attribute_map = {
-        "n_token": "vocab_size",
-        "hidden_size": "d_model",
-        "num_attention_heads": "n_head",
-        "num_hidden_layers": "n_layer",
-    }
 
     def __init__(
         self,
@@ -143,6 +137,7 @@ class TransfoXLConfig(PretrainedConfig):
         eos_token_id=0,
         **kwargs
     ):
+        super().__init__(eos_token_id=eos_token_id, **kwargs)
         self.vocab_size = vocab_size
         self.cutoffs = []
         self.cutoffs.extend(cutoffs)
@@ -172,7 +167,6 @@ class TransfoXLConfig(PretrainedConfig):
         self.proj_init_std = proj_init_std
         self.init_std = init_std
         self.layer_norm_epsilon = layer_norm_epsilon
-        super().__init__(eos_token_id=eos_token_id, **kwargs)
 
     @property
     def max_position_embeddings(self):
@@ -180,9 +174,22 @@ class TransfoXLConfig(PretrainedConfig):
         logger.info(f"The model {self.model_type} is one of the few models that has no sequence length limit.")
         return -1
 
-    @max_position_embeddings.setter
-    def max_position_embeddings(self, value):
-        # Message copied from Transformer-XL documentation
-        raise NotImplementedError(
-            f"The model {self.model_type} is one of the few models that has no sequence length limit."
-        )
+    @property
+    def n_token(self):  # Backward compatibility
+        return self.vocab_size
+
+    @n_token.setter
+    def n_token(self, value):  # Backward compatibility
+        self.vocab_size = value
+
+    @property
+    def hidden_size(self):
+        return self.d_model
+
+    @property
+    def num_attention_heads(self):
+        return self.n_head
+
+    @property
+    def num_hidden_layers(self):
+        return self.n_layer

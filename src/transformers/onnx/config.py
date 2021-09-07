@@ -11,10 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import dataclasses
 from abc import ABC, abstractmethod
 from collections import OrderedDict
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional
+from typing import Any, Mapping, Optional
 
 from transformers import PretrainedConfig, PreTrainedTokenizer, TensorType
 
@@ -27,27 +26,6 @@ DEFAULT_ONNX_OPSET = 11
 EXTERNAL_DATA_FORMAT_SIZE_LIMIT = 2 * 1024 * 1024 * 1024
 
 
-@dataclasses.dataclass
-class PatchingSpec:
-    """
-    Data class that holds patching specifications.
-
-    Args:
-        o: Module / object where the op to patch is located
-        name: Name of the op to monkey patch
-        custom_op: Custom op that patches the original op
-        orig_op: Original op that is being patched
-        op_wrapper: Wrapper (optional) that wraps both the original and custom ops.
-            It is useful for ops that are class or static methods for instance.
-    """
-
-    o: Any
-    name: str
-    custom_op: Callable
-    orig_op: Optional[Callable] = None
-    op_wrapper: Optional[Callable] = None
-
-
 class OnnxConfig(ABC):
     """
     Base class for ONNX exportable model describing metadata on how to export the model through the ONNX format.
@@ -56,39 +34,11 @@ class OnnxConfig(ABC):
     DEFAULT_FIXED_BATCH = 2
     DEFAULT_FIXED_SEQUENCE = 8
 
-    _TASKS_TO_COMMON_OUTPUTS = {
-        "default": OrderedDict({"last_hidden_state": {0: "batch", 1: "sequence"}}),
-        "causal-lm": OrderedDict({"logits": {0: "batch", 1: "sequence"}}),
-        "seq2seq-lm": OrderedDict({"logits": {0: "batch", 1: "decoder_sequence"}}),
-        "sequence-classification": OrderedDict({"logits": {0: "batch"}}),
-        "token-classification": OrderedDict({"logits": {0: "batch", 1: "sequence"}}),
-        "multiple-choice": OrderedDict({"logits": {0: "batch"}}),
-        "question-answering": OrderedDict(
-            {
-                "start_logits": {0: "batch", 1: "sequence"},
-                "end_logits": {0: "batch", 1: "sequence"},
-            }
-        ),
-    }
-
-    def __init__(self, config: PretrainedConfig, task: str = "default", patching_specs: List[PatchingSpec] = None):
+    def __init__(self, config: PretrainedConfig):
         self._config = config
 
-        if task not in self._TASKS_TO_COMMON_OUTPUTS:
-            raise ValueError(
-                f"{task} is not a supported task, supported tasks: {self._TASKS_TO_COMMON_OUTPUTS.keys()}"
-            )
-        self.task = task
-
-        self._patching_specs = []
-        for spec in patching_specs if patching_specs is not None else []:
-            final_spec = spec
-            if spec.orig_op is None:
-                final_spec = dataclasses.replace(spec, orig_op=getattr(spec.o, spec.name))
-            self._patching_specs.append(final_spec)
-
     @classmethod
-    def from_model_config(cls, config: PretrainedConfig, task: str = "default") -> "OnnxConfig":
+    def default(cls, config: PretrainedConfig) -> "OnnxConfig":
         """
         Instantiate a OnnxConfig for a specific model
 
@@ -98,7 +48,7 @@ class OnnxConfig(ABC):
         Returns:
             OnnxConfig for this model
         """
-        return cls(config, task=task)
+        return cls(config)
 
     @property
     @abstractmethod
@@ -112,6 +62,7 @@ class OnnxConfig(ABC):
         raise NotImplementedError()
 
     @property
+    @abstractmethod
     def outputs(self) -> Mapping[str, Mapping[int, str]]:
         """
         Mapping containing the axis definition of the output tensors to provide to the model
@@ -119,7 +70,7 @@ class OnnxConfig(ABC):
         Returns:
             For each output: its name associated to the axes symbolic name and the axis position within the tensor
         """
-        return self._TASKS_TO_COMMON_OUTPUTS[self.task]
+        raise NotImplementedError()
 
     @property
     def values_override(self) -> Optional[Mapping[str, Any]]:
@@ -219,48 +170,14 @@ class OnnxConfig(ABC):
         dummy_input = [" ".join([tokenizer.unk_token]) * seq_length] * batch_size
         return dict(tokenizer(dummy_input, return_tensors=framework))
 
-    def patch_ops(self):
-        for spec in self._patching_specs:
-            custom_op = spec.custom_op if spec.op_wrapper is None else spec.op_wrapper(spec.custom_op)
-            setattr(spec.o, spec.name, custom_op)
-
-    def restore_ops(self):
-        for spec in self._patching_specs:
-            orig_op = spec.orig_op if spec.op_wrapper is None else spec.op_wrapper(spec.orig_op)
-            setattr(spec.o, spec.name, orig_op)
-
-    @staticmethod
-    def flatten_output_collection_property(name: str, field: Iterable[Any]) -> Dict[str, Any]:
-        """
-        Flatten any potential nested structure expanding the name of the field with the index of the element within the
-        structure.
-
-        Args:
-            name: The name of the nested structure
-            field: The structure to, potentially, be flattened
-
-        Returns:
-            (Dict[str, Any]): Outputs with flattened structure and key mapping this new structure.
-
-        """
-        from itertools import chain
-
-        return {f"{name}.{idx}": item for idx, item in enumerate(chain.from_iterable(field))}
-
 
 class OnnxConfigWithPast(OnnxConfig, ABC):
-    def __init__(
-        self,
-        config: PretrainedConfig,
-        task: str = "default",
-        patching_specs: List[PatchingSpec] = None,
-        use_past: bool = False,
-    ):
-        super().__init__(config, task=task, patching_specs=patching_specs)
+    def __init__(self, config: PretrainedConfig, use_past: bool = False):
+        super().__init__(config)
         self.use_past = use_past
 
     @classmethod
-    def with_past(cls, config: PretrainedConfig, task: str = "default") -> "OnnxConfigWithPast":
+    def with_past(cls, config: PretrainedConfig) -> "OnnxConfigWithPast":
         """
         Instantiate a OnnxConfig with `use_past` attribute set to True
 
@@ -270,7 +187,7 @@ class OnnxConfigWithPast(OnnxConfig, ABC):
         Returns:
             OnnxConfig with `.use_past = True`
         """
-        return cls(config, task=task, use_past=True)
+        return cls(config, use_past=True)
 
     @property
     def values_override(self) -> Optional[Mapping[str, Any]]:
@@ -304,15 +221,3 @@ class OnnxConfigWithPast(OnnxConfig, ABC):
         # Generate dummy inputs according to compute batch and sequence
         dummy_input = [" ".join([tokenizer.unk_token]) * seq_length] * batch_size
         return OrderedDict(dict(tokenizer(dummy_input, return_tensors=framework)))
-
-    @staticmethod
-    def flatten_output_collection_property(name: str, field: Iterable[Any]) -> Dict[str, Any]:
-        if name in ["present", "past_key_values"]:
-            flatten_output = {}
-            for idx, t in enumerate(field):
-                flatten_output[f"{name}.{idx}.key"] = t[0]
-                flatten_output[f"{name}.{idx}.value"] = t[1]
-
-            return flatten_output
-
-        return super().flatten_output_collection_property(name, field)

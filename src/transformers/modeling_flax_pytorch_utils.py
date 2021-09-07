@@ -17,7 +17,6 @@
 
 import os
 from pickle import UnpicklingError
-from typing import Dict, Tuple
 
 import numpy as np
 
@@ -59,97 +58,60 @@ def load_pytorch_checkpoint_in_flax_state_dict(flax_model, pytorch_checkpoint_pa
     return flax_state_dict
 
 
-def rename_key_and_reshape_tensor(
-    pt_tuple_key: Tuple[str],
-    pt_tensor: np.ndarray,
-    random_flax_state_dict: Dict[str, jnp.ndarray],
-    model_prefix: str,
-) -> (Tuple[str], np.ndarray):
-    """Rename PT weight names to corresponding Flax weight names and reshape tensor if necessary"""
-
-    def is_key_or_prefix_key_in_dict(key: Tuple[str]) -> bool:
-        """Checks if ``key`` of ``(prefix,) + key`` is in random_flax_state_dict"""
-        return len(set(random_flax_state_dict) & set([key, (model_prefix,) + key])) > 0
-
-    # layer norm
-    renamed_pt_tuple_key = pt_tuple_key[:-1] + ("scale",)
-    if pt_tuple_key[-1] in ["weight", "gamma"] and is_key_or_prefix_key_in_dict(renamed_pt_tuple_key):
-        return renamed_pt_tuple_key, pt_tensor
-
-    # embedding
-    renamed_pt_tuple_key = pt_tuple_key[:-1] + ("embedding",)
-    if pt_tuple_key[-1] == "weight" and is_key_or_prefix_key_in_dict(renamed_pt_tuple_key):
-        return renamed_pt_tuple_key, pt_tensor
-
-    # conv layer
-    renamed_pt_tuple_key = pt_tuple_key[:-1] + ("kernel",)
-    if pt_tuple_key[-1] == "weight" and pt_tensor.ndim == 4 and not is_key_or_prefix_key_in_dict(pt_tuple_key):
-        pt_tensor = pt_tensor.transpose(2, 3, 1, 0)
-        return renamed_pt_tuple_key, pt_tensor
-
-    # linear layer
-    renamed_pt_tuple_key = pt_tuple_key[:-1] + ("kernel",)
-    if pt_tuple_key[-1] == "weight" and not is_key_or_prefix_key_in_dict(pt_tuple_key):
-        pt_tensor = pt_tensor.T
-        return renamed_pt_tuple_key, pt_tensor
-
-    # old PyTorch layer norm weight
-    renamed_pt_tuple_key = pt_tuple_key[:-1] + ("weight",)
-    if pt_tuple_key[-1] == "gamma":
-        return renamed_pt_tuple_key, pt_tensor
-
-    # old PyTorch layer norm bias
-    renamed_pt_tuple_key = pt_tuple_key[:-1] + ("bias",)
-    if pt_tuple_key[-1] == "beta":
-        return renamed_pt_tuple_key, pt_tensor
-
-    return pt_tuple_key, pt_tensor
-
-
 def convert_pytorch_state_dict_to_flax(pt_state_dict, flax_model):
     # convert pytorch tensor to numpy
     pt_state_dict = {k: v.numpy() for k, v in pt_state_dict.items()}
 
-    model_prefix = flax_model.base_model_prefix
     random_flax_state_dict = flatten_dict(flax_model.params)
     flax_state_dict = {}
 
-    load_model_with_head_into_base_model = (model_prefix not in flax_model.params) and (
-        model_prefix in set([k.split(".")[0] for k in pt_state_dict.keys()])
+    remove_base_model_prefix = (flax_model.base_model_prefix not in flax_model.params) and (
+        flax_model.base_model_prefix in set([k.split(".")[0] for k in pt_state_dict.keys()])
     )
-    load_base_model_into_model_with_head = (model_prefix in flax_model.params) and (
-        model_prefix not in set([k.split(".")[0] for k in pt_state_dict.keys()])
+    add_base_model_prefix = (flax_model.base_model_prefix in flax_model.params) and (
+        flax_model.base_model_prefix not in set([k.split(".")[0] for k in pt_state_dict.keys()])
     )
 
-    # Need to change some parameters name to match Flax names
+    # Need to change some parameters name to match Flax names so that we don't have to fork any layer
     for pt_key, pt_tensor in pt_state_dict.items():
 
         pt_tuple_key = tuple(pt_key.split("."))
 
-        # remove base model prefix if necessary
-        has_base_model_prefix = pt_tuple_key[0] == model_prefix
-        if load_model_with_head_into_base_model and has_base_model_prefix:
+        has_base_model_prefix = pt_tuple_key[0] == flax_model.base_model_prefix
+        require_base_model_prefix = (flax_model.base_model_prefix,) + pt_tuple_key in random_flax_state_dict
+
+        if remove_base_model_prefix and has_base_model_prefix:
             pt_tuple_key = pt_tuple_key[1:]
+        elif add_base_model_prefix and require_base_model_prefix:
+            pt_tuple_key = (flax_model.base_model_prefix,) + pt_tuple_key
 
         # Correctly rename weight parameters
-        flax_key, flax_tensor = rename_key_and_reshape_tensor(
-            pt_tuple_key, pt_tensor, random_flax_state_dict, model_prefix
-        )
+        if pt_tuple_key[-1] in ["weight", "gamma"] and pt_tuple_key[:-1] + ("scale",) in random_flax_state_dict:
+            pt_tuple_key = pt_tuple_key[:-1] + ("scale",)
+        if pt_tuple_key[-1] == "weight" and pt_tuple_key[:-1] + ("embedding",) in random_flax_state_dict:
+            pt_tuple_key = pt_tuple_key[:-1] + ("embedding",)
+        elif pt_tuple_key[-1] == "weight" and pt_tensor.ndim == 4 and pt_tuple_key not in random_flax_state_dict:
+            # conv layer
+            pt_tuple_key = pt_tuple_key[:-1] + ("kernel",)
+            pt_tensor = pt_tensor.transpose(2, 3, 1, 0)
+        elif pt_tuple_key[-1] == "weight" and pt_tuple_key not in random_flax_state_dict:
+            # linear layer
+            pt_tuple_key = pt_tuple_key[:-1] + ("kernel",)
+            pt_tensor = pt_tensor.T
+        elif pt_tuple_key[-1] == "gamma":
+            pt_tuple_key = pt_tuple_key[:-1] + ("weight",)
+        elif pt_tuple_key[-1] == "beta":
+            pt_tuple_key = pt_tuple_key[:-1] + ("bias",)
 
-        # add model prefix if necessary
-        require_base_model_prefix = (model_prefix,) + flax_key in random_flax_state_dict
-        if load_base_model_into_model_with_head and require_base_model_prefix:
-            flax_key = (model_prefix,) + flax_key
-
-        if flax_key in random_flax_state_dict:
-            if flax_tensor.shape != random_flax_state_dict[flax_key].shape:
+        if pt_tuple_key in random_flax_state_dict:
+            if pt_tensor.shape != random_flax_state_dict[pt_tuple_key].shape:
                 raise ValueError(
                     f"PyTorch checkpoint seems to be incorrect. Weight {pt_key} was expected to be of shape "
-                    f"{random_flax_state_dict[flax_key].shape}, but is {flax_tensor.shape}."
+                    f"{random_flax_state_dict[pt_tuple_key].shape}, but is {pt_tensor.shape}."
                 )
 
         # also add unexpected weight so that warning is thrown
-        flax_state_dict[flax_key] = jnp.asarray(flax_tensor)
+        flax_state_dict[pt_tuple_key] = jnp.asarray(pt_tensor)
 
     return unflatten_dict(flax_state_dict)
 
@@ -192,10 +154,10 @@ def load_flax_weights_in_pytorch_model(pt_model, flax_state):
     flax_state_dict = flatten_dict(flax_state)
     pt_model_dict = pt_model.state_dict()
 
-    load_model_with_head_into_base_model = (pt_model.base_model_prefix in flax_state) and (
+    remove_base_model_prefix = (pt_model.base_model_prefix in flax_state) and (
         pt_model.base_model_prefix not in set([k.split(".")[0] for k in pt_model_dict.keys()])
     )
-    load_base_model_into_model_with_head = (pt_model.base_model_prefix not in flax_state) and (
+    add_base_model_prefix = (pt_model.base_model_prefix not in flax_state) and (
         pt_model.base_model_prefix in set([k.split(".")[0] for k in pt_model_dict.keys()])
     )
 
@@ -208,9 +170,9 @@ def load_flax_weights_in_pytorch_model(pt_model, flax_state):
         require_base_model_prefix = ".".join((pt_model.base_model_prefix,) + flax_key_tuple) in pt_model_dict
 
         # adapt flax_key to prepare for loading from/to base model only
-        if load_model_with_head_into_base_model and has_base_model_prefix:
+        if remove_base_model_prefix and has_base_model_prefix:
             flax_key_tuple = flax_key_tuple[1:]
-        elif load_base_model_into_model_with_head and require_base_model_prefix:
+        elif add_base_model_prefix and require_base_model_prefix:
             flax_key_tuple = (pt_model.base_model_prefix,) + flax_key_tuple
 
         # rename flax weights to PyTorch format

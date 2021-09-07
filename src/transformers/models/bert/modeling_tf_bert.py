@@ -1386,10 +1386,7 @@ class TFBertForSequenceClassification(TFBertPreTrainedModel, TFSequenceClassific
         self.num_labels = config.num_labels
 
         self.bert = TFBertMainLayer(config, name="bert")
-        classifier_dropout = (
-            config.classifier_dropout if config.classifier_dropout is not None else config.hidden_dropout_prob
-        )
-        self.dropout = tf.keras.layers.Dropout(rate=classifier_dropout)
+        self.dropout = tf.keras.layers.Dropout(rate=config.hidden_dropout_prob)
         self.classifier = tf.keras.layers.Dense(
             units=config.num_labels,
             kernel_initializer=get_initializer(config.initializer_range),
@@ -1655,10 +1652,7 @@ class TFBertForTokenClassification(TFBertPreTrainedModel, TFTokenClassificationL
         self.num_labels = config.num_labels
 
         self.bert = TFBertMainLayer(config, add_pooling_layer=False, name="bert")
-        classifier_dropout = (
-            config.classifier_dropout if config.classifier_dropout is not None else config.hidden_dropout_prob
-        )
-        self.dropout = tf.keras.layers.Dropout(rate=classifier_dropout)
+        self.dropout = tf.keras.layers.Dropout(rate=config.hidden_dropout_prob)
         self.classifier = tf.keras.layers.Dense(
             units=config.num_labels,
             kernel_initializer=get_initializer(config.initializer_range),

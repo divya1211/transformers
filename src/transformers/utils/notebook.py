@@ -148,25 +148,18 @@ class NotebookProgressBar:
                 self.first_calls -= 1
             current_time = time.time()
             self.elapsed_time = current_time - self.start_time
-            # We could have value = self.start_value if the update is called twixe with the same start value.
-            if value > self.start_value:
-                self.average_time_per_item = self.elapsed_time / (value - self.start_value)
-            else:
-                self.average_time_per_item = None
+            self.average_time_per_item = self.elapsed_time / (value - self.start_value)
             if value >= self.total:
                 value = self.total
                 self.predicted_remaining = None
                 if not self.leave:
                     self.close()
-            elif self.average_time_per_item is not None:
+            else:
                 self.predicted_remaining = self.average_time_per_item * (self.total - value)
             self.update_bar(value)
             self.last_value = value
             self.last_time = current_time
-            if self.average_time_per_item is None:
-                self.wait_for = 1
-            else:
-                self.wait_for = max(int(self.update_every / self.average_time_per_item), 1)
+            self.wait_for = max(int(self.update_every / self.average_time_per_item), 1)
 
     def update_bar(self, value, comment=None):
         spaced_value = " " * (len(str(self.total)) - len(str(value))) + str(value)

@@ -48,7 +48,6 @@ logger = logging.get_logger(__name__)
 
 _CONFIG_FOR_DOC = "FunnelConfig"
 _TOKENIZER_FOR_DOC = "FunnelTokenizer"
-_CHECKPOINT_FOR_DOC = "funnel-transformer/small"
 
 FUNNEL_PRETRAINED_MODEL_ARCHIVE_LIST = [
     "funnel-transformer/small",  # B4-4-4H768
@@ -988,7 +987,7 @@ class FunnelModel(FunnelPreTrainedModel):
     @add_start_docstrings_to_model_forward(FUNNEL_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
         tokenizer_class=_TOKENIZER_FOR_DOC,
-        checkpoint=_CHECKPOINT_FOR_DOC,
+        checkpoint="funnel-transformer/small",
         output_type=BaseModelOutput,
         config_class=_CONFIG_FOR_DOC,
     )
@@ -1175,7 +1174,7 @@ class FunnelForMaskedLM(FunnelPreTrainedModel):
     @add_start_docstrings_to_model_forward(FUNNEL_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
         tokenizer_class=_TOKENIZER_FOR_DOC,
-        checkpoint=_CHECKPOINT_FOR_DOC,
+        checkpoint="funnel-transformer/small",
         output_type=MaskedLMOutput,
         config_class=_CONFIG_FOR_DOC,
         mask="<mask>",
@@ -1425,7 +1424,7 @@ class FunnelForTokenClassification(FunnelPreTrainedModel):
     @add_start_docstrings_to_model_forward(FUNNEL_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
         tokenizer_class=_TOKENIZER_FOR_DOC,
-        checkpoint=_CHECKPOINT_FOR_DOC,
+        checkpoint="funnel-transformer/small",
         output_type=TokenClassifierOutput,
         config_class=_CONFIG_FOR_DOC,
     )
@@ -1507,7 +1506,7 @@ class FunnelForQuestionAnswering(FunnelPreTrainedModel):
     @add_start_docstrings_to_model_forward(FUNNEL_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
         tokenizer_class=_TOKENIZER_FOR_DOC,
-        checkpoint=_CHECKPOINT_FOR_DOC,
+        checkpoint="funnel-transformer/small",
         output_type=QuestionAnsweringModelOutput,
         config_class=_CONFIG_FOR_DOC,
     )

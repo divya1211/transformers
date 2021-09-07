@@ -84,8 +84,6 @@ class MobileBertConfig(PretrainedConfig):
             Number of FFNs in a block.
         normalization_type (:obj:`str`, `optional`, defaults to :obj:`"no_norm"`):
             The normalization type in MobileBERT.
-        classifier_dropout (:obj:`float`, `optional`):
-            The dropout ratio for the classification head.
 
     Examples::
 
@@ -130,7 +128,6 @@ class MobileBertConfig(PretrainedConfig):
         num_feedforward_networks=4,
         normalization_type="no_norm",
         classifier_activation=True,
-        classifier_dropout=None,
         **kwargs
     ):
         super().__init__(pad_token_id=pad_token_id, **kwargs)
@@ -161,5 +158,3 @@ class MobileBertConfig(PretrainedConfig):
             self.true_hidden_size = intra_bottleneck_size
         else:
             self.true_hidden_size = hidden_size
-
-        self.classifier_dropout = classifier_dropout

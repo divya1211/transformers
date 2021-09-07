@@ -36,7 +36,6 @@ from .file_utils import (
     ModelOutput,
     PushToHubMixin,
     cached_path,
-    copy_func,
     hf_bucket_url,
     is_offline_mode,
     is_remote_url,
@@ -735,13 +734,7 @@ class TFPreTrainedModel(tf.keras.Model, TFModelUtilsMixin, TFGenerationMixin, Pu
         if self.get_lm_head() is not None:
             lm_head = self.get_lm_head()
 
-            try:
-                return lm_head.get_output_embeddings()
-            except AttributeError:
-                logger.info("Building the model")
-                self(self.dummy_inputs)
-
-                return lm_head().get_output_embeddings()
+            return lm_head.get_output_embeddings()
 
         return None  # Overwrite for models with output embeddings
 
@@ -1120,14 +1113,14 @@ class TFPreTrainedModel(tf.keras.Model, TFModelUtilsMixin, TFGenerationMixin, Pu
                     - :obj:`None` if you are both providing the configuration and state dictionary (resp. with keyword
                       arguments ``config`` and ``state_dict``).
             model_args (sequence of positional arguments, `optional`):
-                All remaining positional arguments will be passed to the underlying model's ``__init__`` method.
+                All remaning positional arguments will be passed to the underlying model's ``__init__`` method.
             config (:obj:`Union[PretrainedConfig, str]`, `optional`):
                 Can be either:
 
                     - an instance of a class derived from :class:`~transformers.PretrainedConfig`,
                     - a string valid as input to :func:`~transformers.PretrainedConfig.from_pretrained`.
 
-                Configuration for the model to use instead of an automatically loaded configuration. Configuration can
+                Configuration for the model to use instead of an automatically loaded configuation. Configuration can
                 be automatically loaded when:
 
                     - The model is a model provided by the library (loaded with the `model id` string of a pretrained
@@ -1397,13 +1390,6 @@ class TFPreTrainedModel(tf.keras.Model, TFModelUtilsMixin, TFGenerationMixin, Pu
             return model, loading_info
 
         return model
-
-
-# To update the docstring, we need to copy the method, otherwise we change the original docstring.
-TFPreTrainedModel.push_to_hub = copy_func(TFPreTrainedModel.push_to_hub)
-TFPreTrainedModel.push_to_hub.__doc__ = TFPreTrainedModel.push_to_hub.__doc__.format(
-    object="model", object_class="TFAutoModel", object_files="model checkpoint"
-)
 
 
 class TFConv1D(tf.keras.layers.Layer):

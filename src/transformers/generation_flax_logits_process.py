@@ -19,6 +19,7 @@ from abc import ABC
 import jax
 import jax.lax as lax
 import jax.numpy as jnp
+import jaxlib.xla_extension as jax_xla
 
 from .file_utils import add_start_docstrings
 from .utils.logging import get_logger
@@ -29,7 +30,7 @@ logger = get_logger(__name__)
 
 LOGITS_PROCESSOR_INPUTS_DOCSTRING = r"""
     Args:
-        input_ids (:obj:`jnp.ndarray` of shape :obj:`(batch_size, sequence_length)`):
+        input_ids (:obj:`jax_xla.DeviceArray` of shape :obj:`(batch_size, sequence_length)`):
             Indices of input sequence tokens in the vocabulary.
 
             Indices can be obtained using :class:`~transformers.PreTrainedTokenizer`. See
@@ -37,14 +38,14 @@ LOGITS_PROCESSOR_INPUTS_DOCSTRING = r"""
             details.
 
             `What are input IDs? <../glossary.html#input-ids>`__
-        scores (:obj:`jnp.ndarray` of shape :obj:`(batch_size, config.vocab_size)`):
+        scores (:obj:`jax_xla.DeviceArray` of shape :obj:`(batch_size, config.vocab_size)`):
             Prediction scores of a language modeling head. These can be logits for each vocabulary when not using beam
             search or log softmax for each vocabulary token when using beam search
         kwargs:
             Additional logits processor specific kwargs.
 
     Return:
-        :obj:`jnp.ndarray` of shape :obj:`(batch_size, config.vocab_size)`: The processed prediction scores.
+        :obj:`jax_xla.DeviceArray` of shape :obj:`(batch_size, config.vocab_size)`: The processed prediction scores.
 
 """
 
@@ -53,7 +54,7 @@ class FlaxLogitsProcessor(ABC):
     """Abstract base class for all logit processors that can be applied during generation."""
 
     @add_start_docstrings(LOGITS_PROCESSOR_INPUTS_DOCSTRING)
-    def __call__(self, input_ids: jnp.ndarray, scores: jnp.ndarray) -> jnp.ndarray:
+    def __call__(self, input_ids: jax_xla.DeviceArray, scores: jax_xla.DeviceArray) -> jax_xla.DeviceArray:
         """Flax method for processing logits."""
         raise NotImplementedError(
             f"{self.__class__} is an abstract class. Only classes inheriting this class can be called."
@@ -64,7 +65,7 @@ class FlaxLogitsWarper(ABC):
     """Abstract base class for all logit warpers that can be applied during generation with multinomial sampling."""
 
     @add_start_docstrings(LOGITS_PROCESSOR_INPUTS_DOCSTRING)
-    def __call__(self, input_ids: jnp.ndarray, scores: jnp.ndarray) -> jnp.ndarray:
+    def __call__(self, input_ids: jax_xla.DeviceArray, scores: jax_xla.DeviceArray) -> jax_xla.DeviceArray:
         """Flax method for warping logits."""
         raise NotImplementedError(
             f"{self.__class__} is an abstract class. Only classes inheriting this class can be called."
@@ -80,7 +81,9 @@ class FlaxLogitsProcessorList(list):
     """
 
     @add_start_docstrings(LOGITS_PROCESSOR_INPUTS_DOCSTRING)
-    def __call__(self, input_ids: jnp.ndarray, scores: jnp.ndarray, cur_len: int, **kwargs) -> jnp.ndarray:
+    def __call__(
+        self, input_ids: jax_xla.DeviceArray, scores: jax_xla.DeviceArray, cur_len: int, **kwargs
+    ) -> jax_xla.DeviceArray:
         for processor in self:
             function_args = inspect.signature(processor.__call__).parameters
             if len(function_args) > 3:
@@ -108,7 +111,9 @@ class FlaxTemperatureLogitsWarper(FlaxLogitsWarper):
 
         self.temperature = temperature
 
-    def __call__(self, input_ids: jnp.ndarray, scores: jnp.ndarray, cur_len: int) -> jnp.ndarray:
+    def __call__(
+        self, input_ids: jax_xla.DeviceArray, scores: jax_xla.DeviceArray, cur_len: int
+    ) -> jax_xla.DeviceArray:
         scores = scores / self.temperature
         return scores
 
@@ -136,7 +141,9 @@ class FlaxTopPLogitsWarper(FlaxLogitsWarper):
         self.filter_value = filter_value
         self.min_tokens_to_keep = min_tokens_to_keep
 
-    def __call__(self, input_ids: jnp.ndarray, scores: jnp.ndarray, cur_len: int) -> jnp.ndarray:
+    def __call__(
+        self, input_ids: jax_xla.DeviceArray, scores: jax_xla.DeviceArray, cur_len: int
+    ) -> jax_xla.DeviceArray:
         topk_scores, topk_indices = lax.top_k(scores, scores.shape[-1])
 
         mask_scores = jnp.full_like(scores, self.filter_value)
@@ -176,7 +183,9 @@ class FlaxTopKLogitsWarper(FlaxLogitsWarper):
         self.filter_value = filter_value
         self.min_tokens_to_keep = min_tokens_to_keep
 
-    def __call__(self, input_ids: jnp.ndarray, scores: jnp.ndarray, cur_len: int) -> jnp.ndarray:
+    def __call__(
+        self, input_ids: jax_xla.DeviceArray, scores: jax_xla.DeviceArray, cur_len: int
+    ) -> jax_xla.DeviceArray:
         batch_size, vocab_size = scores.shape
         next_scores_flat = jnp.full(batch_size * vocab_size, self.filter_value)
 
@@ -203,7 +212,9 @@ class FlaxForcedBOSTokenLogitsProcessor(FlaxLogitsProcessor):
     def __init__(self, bos_token_id: int):
         self.bos_token_id = bos_token_id
 
-    def __call__(self, input_ids: jnp.ndarray, scores: jnp.ndarray, cur_len: int) -> jnp.ndarray:
+    def __call__(
+        self, input_ids: jax_xla.DeviceArray, scores: jax_xla.DeviceArray, cur_len: int
+    ) -> jax_xla.DeviceArray:
         new_scores = jnp.full(scores.shape, -float("inf"))
 
         apply_penalty = 1 - jnp.bool_(cur_len - 1)
@@ -231,7 +242,9 @@ class FlaxForcedEOSTokenLogitsProcessor(FlaxLogitsProcessor):
         self.max_length = max_length
         self.eos_token_id = eos_token_id
 
-    def __call__(self, input_ids: jnp.ndarray, scores: jnp.ndarray, cur_len: int) -> jnp.ndarray:
+    def __call__(
+        self, input_ids: jax_xla.DeviceArray, scores: jax_xla.DeviceArray, cur_len: int
+    ) -> jax_xla.DeviceArray:
         new_scores = jnp.full(scores.shape, -float("inf"))
 
         apply_penalty = 1 - jnp.bool_(cur_len - self.max_length + 1)
@@ -264,7 +277,9 @@ class FlaxMinLengthLogitsProcessor(FlaxLogitsProcessor):
         self.min_length = min_length
         self.eos_token_id = eos_token_id
 
-    def __call__(self, input_ids: jnp.ndarray, scores: jnp.ndarray, cur_len: int) -> jnp.ndarray:
+    def __call__(
+        self, input_ids: jax_xla.DeviceArray, scores: jax_xla.DeviceArray, cur_len: int
+    ) -> jax_xla.DeviceArray:
 
         # create boolean flag to decide if min length penalty should be applied
         apply_penalty = 1 - jnp.clip(cur_len - self.min_length, 0, 1)

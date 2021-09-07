@@ -271,7 +271,8 @@ class CamembertTokenizer(PreTrainedTokenizer):
 
     def convert_tokens_to_string(self, tokens):
         """Converts a sequence of tokens (strings for sub-words) in a single string."""
-        return self.sp_model.decode(tokens)
+        out_string = "".join(tokens).replace(SPIECE_UNDERLINE, " ").strip()
+        return out_string
 
     def save_vocabulary(self, save_directory: str, filename_prefix: Optional[str] = None) -> Tuple[str]:
         if not os.path.isdir(save_directory):

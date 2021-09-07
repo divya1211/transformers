@@ -177,14 +177,14 @@ class FlaxPreTrainedModel(PushToHubMixin, FlaxGenerationMixin):
                     - A path or url to a `pt index checkpoint file` (e.g, ``./tf_model/model.ckpt.index``). In this
                       case, ``from_pt`` should be set to :obj:`True`.
             model_args (sequence of positional arguments, `optional`):
-                All remaining positional arguments will be passed to the underlying model's ``__init__`` method.
+                All remaning positional arguments will be passed to the underlying model's ``__init__`` method.
             config (:obj:`Union[PretrainedConfig, str, os.PathLike]`, `optional`):
                 Can be either:
 
                     - an instance of a class derived from :class:`~transformers.PretrainedConfig`,
                     - a string or path valid as input to :func:`~transformers.PretrainedConfig.from_pretrained`.
 
-                Configuration for the model to use instead of an automatically loaded configuration. Configuration can
+                Configuration for the model to use instead of an automatically loaded configuation. Configuration can
                 be automatically loaded when:
 
                     - The model is a model provided by the library (loaded with the `model id` string of a pretrained
@@ -488,13 +488,6 @@ class FlaxPreTrainedModel(PushToHubMixin, FlaxGenerationMixin):
         if push_to_hub:
             url = self._push_to_hub(repo, commit_message=commit_message)
             logger.info(f"Model pushed to the hub in this commit: {url}")
-
-
-# To update the docstring, we need to copy the method, otherwise we change the original docstring.
-FlaxPreTrainedModel.push_to_hub = copy_func(FlaxPreTrainedModel.push_to_hub)
-FlaxPreTrainedModel.push_to_hub.__doc__ = FlaxPreTrainedModel.push_to_hub.__doc__.format(
-    object="model", object_class="FlaxAutoModel", object_files="model checkpoint"
-)
 
 
 def overwrite_call_docstring(model_class, docstring):

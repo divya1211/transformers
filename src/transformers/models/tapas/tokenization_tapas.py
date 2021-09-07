@@ -262,10 +262,7 @@ class TapasTokenizer(PreTrainedTokenizer):
             Whether to add empty strings instead of column names.
         update_answer_coordinates (:obj:`bool`, `optional`, defaults to :obj:`False`):
             Whether to recompute the answer coordinates from the answer text.
-        min_question_length (:obj:`int`, `optional`):
-            Minimum length of each question in terms of tokens (will be skipped otherwise).
-        max_question_length (:obj:`int`, `optional`):
-            Maximum length of each question in terms of tokens (will be skipped otherwise).
+
     """
 
     vocab_files_names = VOCAB_FILES_NAMES
@@ -291,8 +288,6 @@ class TapasTokenizer(PreTrainedTokenizer):
         max_row_id: int = None,
         strip_column_names: bool = False,
         update_answer_coordinates: bool = False,
-        min_question_length=None,
-        max_question_length=None,
         model_max_length: int = 512,
         additional_special_tokens: Optional[List[str]] = None,
         **kwargs
@@ -323,8 +318,6 @@ class TapasTokenizer(PreTrainedTokenizer):
             max_row_id=max_row_id,
             strip_column_names=strip_column_names,
             update_answer_coordinates=update_answer_coordinates,
-            min_question_length=min_question_length,
-            max_question_length=max_question_length,
             model_max_length=model_max_length,
             additional_special_tokens=additional_special_tokens,
             **kwargs,
@@ -353,8 +346,6 @@ class TapasTokenizer(PreTrainedTokenizer):
         self.max_row_id = max_row_id if max_row_id is not None else self.model_max_length
         self.strip_column_names = strip_column_names
         self.update_answer_coordinates = update_answer_coordinates
-        self.min_question_length = min_question_length
-        self.max_question_length = max_question_length
 
     @property
     def do_lower_case(self):
@@ -738,19 +729,6 @@ class TapasTokenizer(PreTrainedTokenizer):
             **kwargs,
         )
 
-    def _get_question_tokens(self, query):
-        """Tokenizes the query, taking into account the max and min question length."""
-
-        query_tokens = self.tokenize(query)
-        if self.max_question_length is not None and len(query_tokens) > self.max_question_length:
-            logger.warning("Skipping query as its tokens are longer than the max question length")
-            return "", []
-        if self.min_question_length is not None and len(query_tokens) < self.min_question_length:
-            logger.warning("Skipping query as its tokens are shorter than the min question length")
-            return "", []
-
-        return query, query_tokens
-
     def _batch_encode_plus(
         self,
         table,
@@ -779,9 +757,8 @@ class TapasTokenizer(PreTrainedTokenizer):
         table_tokens = self._tokenize_table(table)
 
         queries_tokens = []
-        for idx, query in enumerate(queries):
-            query, query_tokens = self._get_question_tokens(query)
-            queries[idx] = query
+        for query in queries:
+            query_tokens = self.tokenize(query)
             queries_tokens.append(query_tokens)
 
         batch_outputs = self._batch_prepare_for_model(
@@ -1038,7 +1015,7 @@ class TapasTokenizer(PreTrainedTokenizer):
             )
 
         table_tokens = self._tokenize_table(table)
-        query, query_tokens = self._get_question_tokens(query)
+        query_tokens = self.tokenize(query)
 
         return self.prepare_for_model(
             table,

@@ -61,21 +61,15 @@ class ImageClassificationPipeline(Pipeline):
             if image.startswith("http://") or image.startswith("https://"):
                 # We need to actually check for a real protocol, otherwise it's impossible to use a local file
                 # like http_huggingface_co.png
-                image = Image.open(requests.get(image, stream=True).raw)
+                return Image.open(requests.get(image, stream=True).raw)
             elif os.path.isfile(image):
-                image = Image.open(image)
-            else:
-                raise ValueError(
-                    f"Incorrect path or url, URLs must start with `http://` or `https://`, and {image} is not a valid path"
-                )
+                return Image.open(image)
         elif isinstance(image, Image.Image):
-            image = image
-        else:
-            raise ValueError(
-                "Incorrect format used for image. Should be an url linking to an image, a local path, or a PIL image."
-            )
-        image = image.convert("RGB")
-        return image
+            return image
+
+        raise ValueError(
+            "Incorrect format used for image. Should be an url linking to an image, a local path, or a PIL image."
+        )
 
     def __call__(self, images: Union[str, List[str], "Image", List["Image"]], top_k=5):
         """

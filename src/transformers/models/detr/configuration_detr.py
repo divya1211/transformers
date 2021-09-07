@@ -117,10 +117,6 @@ class DetrConfig(PretrainedConfig):
     """
     model_type = "detr"
     keys_to_ignore_at_inference = ["past_key_values"]
-    attribute_map = {
-        "hidden_size": "d_model",
-        "num_attention_heads": "encoder_attention_heads",
-    }
 
     def __init__(
         self,
@@ -158,6 +154,8 @@ class DetrConfig(PretrainedConfig):
         eos_coefficient=0.1,
         **kwargs
     ):
+        super().__init__(is_encoder_decoder=is_encoder_decoder, **kwargs)
+
         self.num_queries = num_queries
         self.max_position_embeddings = max_position_embeddings
         self.d_model = d_model
@@ -191,7 +189,6 @@ class DetrConfig(PretrainedConfig):
         self.bbox_loss_coefficient = bbox_loss_coefficient
         self.giou_loss_coefficient = giou_loss_coefficient
         self.eos_coefficient = eos_coefficient
-        super().__init__(is_encoder_decoder=is_encoder_decoder, **kwargs)
 
     @property
     def num_attention_heads(self) -> int:

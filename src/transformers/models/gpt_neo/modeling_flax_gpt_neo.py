@@ -25,7 +25,7 @@ from flax.linen.attention import dot_product_attention_weights
 from jax import lax
 
 from ...file_utils import add_start_docstrings, add_start_docstrings_to_model_forward
-from ...modeling_flax_outputs import FlaxBaseModelOutput, FlaxCausalLMOutput
+from ...modeling_flax_outputs import FlaxBaseModelOutput, FlaxBaseModelOutputWithPast, FlaxCausalLMOutput
 from ...modeling_flax_utils import ACT2FN, FlaxPreTrainedModel, append_call_sample_docstring
 from ...utils import logging
 from .configuration_gpt_neo import GPTNeoConfig
@@ -488,10 +488,20 @@ class FlaxGPTNeoBlockCollection(nn.Module):
             if output_attentions:
                 all_attentions += (layer_outputs[1],)
 
-        # this contains possible `None` values - `FlaxGPTNeoModule` will filter them out
-        outputs = (hidden_states, all_hidden_states, all_attentions)
+        if output_hidden_states:
+            all_hidden_states += (hidden_states,)
 
-        return outputs
+        outputs = (hidden_states,)
+
+        if not return_dict:
+            return tuple(v for v in outputs if v is not None)
+
+        return FlaxBaseModelOutputWithPast(
+            last_hidden_state=hidden_states,
+            past_key_values=None,
+            hidden_states=all_hidden_states,
+            attentions=all_attentions,
+        )
 
 
 class FlaxGPTNeoModule(nn.Module):
@@ -547,22 +557,13 @@ class FlaxGPTNeoModule(nn.Module):
         hidden_states = outputs[0]
         hidden_states = self.ln_f(hidden_states)
 
-        hidden_states = outputs[0]
-        hidden_states = self.ln_f(hidden_states)
-
-        if output_hidden_states:
-            all_hidden_states = outputs[1] + (hidden_states,)
-            outputs = (hidden_states, all_hidden_states) + outputs[2:]
-        else:
-            outputs = (hidden_states,) + outputs[1:]
-
         if not return_dict:
-            return tuple(v for v in outputs if v is not None)
+            return (hidden_states,) + outputs[1:]
 
         return FlaxBaseModelOutput(
             last_hidden_state=hidden_states,
-            hidden_states=outputs[1],
-            attentions=outputs[-1],
+            hidden_states=outputs.hidden_states,
+            attentions=outputs.attentions,
         )
 
 

@@ -13,10 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """ MBART model configuration """
-from collections import OrderedDict
-from typing import Mapping
-
-from transformers.onnx import OnnxConfigWithPast
 
 from ...configuration_utils import PretrainedConfig
 from ...utils import logging
@@ -107,7 +103,6 @@ class MBartConfig(PretrainedConfig):
     """
     model_type = "mbart"
     keys_to_ignore_at_inference = ["past_key_values"]
-    attribute_map = {"num_attention_heads": "encoder_attention_heads", "hidden_size": "d_model"}
 
     def __init__(
         self,
@@ -138,6 +133,15 @@ class MBartConfig(PretrainedConfig):
         forced_eos_token_id=2,
         **kwargs
     ):
+        super().__init__(
+            pad_token_id=pad_token_id,
+            bos_token_id=bos_token_id,
+            eos_token_id=eos_token_id,
+            is_encoder_decoder=is_encoder_decoder,
+            forced_eos_token_id=forced_eos_token_id,
+            **kwargs,
+        )
+
         self.vocab_size = vocab_size
         self.max_position_embeddings = max_position_embeddings
         self.d_model = d_model
@@ -159,40 +163,11 @@ class MBartConfig(PretrainedConfig):
         self.num_hidden_layers = encoder_layers
         self.gradient_checkpointing = gradient_checkpointing
         self.scale_embedding = scale_embedding  # scale factor will be sqrt(d_model) if True
-        super().__init__(
-            pad_token_id=pad_token_id,
-            bos_token_id=bos_token_id,
-            eos_token_id=eos_token_id,
-            is_encoder_decoder=is_encoder_decoder,
-            forced_eos_token_id=forced_eos_token_id,
-            **kwargs,
-        )
-
-
-class MBartOnnxConfig(OnnxConfigWithPast):
-    @property
-    def inputs(self) -> Mapping[str, Mapping[int, str]]:
-        return OrderedDict(
-            [
-                ("input_ids", {0: "batch", 1: "sequence"}),
-                ("attention_mask", {0: "batch", 1: "sequence"}),
-            ]
-        )
 
     @property
-    def outputs(self) -> Mapping[str, Mapping[int, str]]:
-        if self.use_past:
-            return OrderedDict(
-                [
-                    ("last_hidden_state", {0: "batch", 1: "sequence"}),
-                    ("past_keys", {0: "batch", 2: "sequence"}),
-                    ("encoder_last_hidden_state", {0: "batch", 1: "sequence"}),
-                ]
-            )
-        else:
-            return OrderedDict(
-                [
-                    ("last_hidden_state", {0: "batch", 1: "sequence"}),
-                    ("encoder_last_hidden_state", {0: "batch", 1: "sequence"}),
-                ]
-            )
+    def num_attention_heads(self) -> int:
+        return self.encoder_attention_heads
+
+    @property
+    def hidden_size(self) -> int:
+        return self.d_model

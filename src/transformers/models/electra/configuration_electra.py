@@ -104,8 +104,6 @@ class ElectraConfig(PretrainedConfig):
             <https://arxiv.org/abs/1803.02155>`__. For more information on :obj:`"relative_key_query"`, please refer to
             `Method 4` in `Improve Transformer Models with Better Relative Position Embeddings (Huang et al.)
             <https://arxiv.org/abs/2009.13658>`__.
-        classifier_dropout (:obj:`float`, `optional`):
-            The dropout ratio for the classification head.
 
     Examples::
 
@@ -143,7 +141,6 @@ class ElectraConfig(PretrainedConfig):
         summary_last_dropout=0.1,
         pad_token_id=0,
         position_embedding_type="absolute",
-        classifier_dropout=None,
         **kwargs
     ):
         super().__init__(pad_token_id=pad_token_id, **kwargs)
@@ -167,4 +164,3 @@ class ElectraConfig(PretrainedConfig):
         self.summary_activation = summary_activation
         self.summary_last_dropout = summary_last_dropout
         self.position_embedding_type = position_embedding_type
-        self.classifier_dropout = classifier_dropout

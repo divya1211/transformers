@@ -1,6 +1,5 @@
 from typing import TYPE_CHECKING, Optional, Union
 
-from ..feature_extraction_utils import PreTrainedFeatureExtractor
 from ..modelcard import ModelCard
 from ..tokenization_utils import PreTrainedTokenizer
 from .base import ArgumentHandler, Pipeline
@@ -53,7 +52,6 @@ class FeatureExtractionPipeline(Pipeline):
         self,
         model: Union["PreTrainedModel", "TFPreTrainedModel"],
         tokenizer: PreTrainedTokenizer,
-        feature_extractor: Optional[PreTrainedFeatureExtractor] = None,
         modelcard: Optional[ModelCard] = None,
         framework: Optional[str] = None,
         args_parser: ArgumentHandler = None,
@@ -63,7 +61,6 @@ class FeatureExtractionPipeline(Pipeline):
         super().__init__(
             model=model,
             tokenizer=tokenizer,
-            feature_extractor=feature_extractor,
             modelcard=modelcard,
             framework=framework,
             args_parser=args_parser,
@@ -82,10 +79,4 @@ class FeatureExtractionPipeline(Pipeline):
         Return:
             A nested list of :obj:`float`: The features computed by the model.
         """
-        results = super().__call__(*args, **kwargs)
-        if isinstance(results, list):
-            # Sequential run
-            results = [r.tolist() for r in results]
-        else:
-            results = results.tolist()
-        return results
+        return super().__call__(*args, **kwargs).tolist()

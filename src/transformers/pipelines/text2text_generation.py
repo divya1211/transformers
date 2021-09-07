@@ -110,7 +110,6 @@ class Text2TextGenerationPipeline(Pipeline):
             - **generated_token_ids** (:obj:`torch.Tensor` or :obj:`tf.Tensor`, present when ``return_tensors=True``)
               -- The token ids of the generated text.
         """
-
         assert return_tensors or return_text, "You must specify return_tensors=True or return_text=True"
 
         with self.device_placement():
@@ -268,7 +267,7 @@ class TranslationPipeline(Text2TextGenerationPipeline):
     def _parse_and_tokenize(self, *args, src_lang, tgt_lang, truncation):
         if getattr(self.tokenizer, "_build_translation_inputs", None):
             return self.tokenizer._build_translation_inputs(
-                *args, return_tensors=self.framework, src_lang=src_lang, tgt_lang=tgt_lang, truncation=truncation
+                *args, src_lang=src_lang, tgt_lang=tgt_lang, truncation=truncation
             )
         else:
             return super()._parse_and_tokenize(*args, truncation=truncation)

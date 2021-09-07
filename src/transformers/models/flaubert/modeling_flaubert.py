@@ -18,7 +18,6 @@
 import random
 
 import torch
-from packaging import version
 from torch import nn
 
 from ...file_utils import add_code_sample_docstrings, add_start_docstrings, add_start_docstrings_to_model_forward
@@ -141,10 +140,6 @@ class FlaubertModel(XLMModel):
         super().__init__(config)
         self.layerdrop = getattr(config, "layerdrop", 0.0)
         self.pre_norm = getattr(config, "pre_norm", False)
-        if version.parse(torch.__version__) > version.parse("1.6.0"):
-            self.register_buffer(
-                "position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)), persistent=False
-            )
 
     @add_start_docstrings_to_model_forward(FLAUBERT_INPUTS_DOCSTRING)
     @add_code_sample_docstrings(
@@ -203,16 +198,10 @@ class FlaubertModel(XLMModel):
         # if self.is_decoder and src_enc is not None:
         #     src_mask = torch.arange(src_len.max(), dtype=torch.long, device=lengths.device) < src_len[:, None]
 
-        # Setting the position-ids to the registered buffer in constructor, it helps
-        # when tracing the model without passing position-ids, solves
-        # isues similar to issue #5664
+        # position_ids
         if position_ids is None:
-            if hasattr(self, "position_ids"):
-                position_ids = self.position_ids[:, :slen]
-                position_ids = position_ids.expand((bs, slen))
-            else:
-                position_ids = torch.arange(slen, dtype=torch.long, device=device)
-                position_ids = position_ids.unsqueeze(0).expand((bs, slen))
+            position_ids = torch.arange(slen, dtype=torch.long, device=device)
+            position_ids = position_ids.unsqueeze(0).expand((bs, slen))
         else:
             assert position_ids.size() == (bs, slen)  # (slen, bs)
             # position_ids = position_ids.transpose(0, 1)

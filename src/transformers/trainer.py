@@ -26,6 +26,7 @@ import shutil
 import sys
 import time
 import warnings
+from logging import StreamHandler
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -48,8 +49,10 @@ import numpy as np
 import torch
 from packaging import version
 from torch import nn
-from torch.utils.data import DataLoader, Dataset, IterableDataset, RandomSampler, SequentialSampler
+from torch.utils.data.dataloader import DataLoader
+from torch.utils.data.dataset import Dataset, IterableDataset
 from torch.utils.data.distributed import DistributedSampler
+from torch.utils.data.sampler import RandomSampler, SequentialSampler
 
 from . import __version__
 from .configuration_utils import PretrainedConfig
@@ -67,10 +70,10 @@ from .file_utils import (
     is_sagemaker_dp_enabled,
     is_sagemaker_mp_enabled,
     is_torch_tpu_available,
+    is_training_run_on_sagemaker,
 )
 from .modelcard import TrainingSummary
 from .modeling_utils import PreTrainedModel, unwrap_model
-from .models.auto.modeling_auto import MODEL_FOR_QUESTION_ANSWERING_MAPPING_NAMES
 from .optimization import Adafactor, AdamW, get_scheduler
 from .tokenization_utils_base import PreTrainedTokenizerBase
 from .trainer_callback import (
@@ -122,6 +125,7 @@ from .trainer_utils import (
 )
 from .training_args import ParallelMode, TrainingArguments
 from .utils import logging
+from .utils.modeling_auto_mapping import MODEL_FOR_QUESTION_ANSWERING_MAPPING_NAMES
 
 
 _is_torch_generator_available = False
@@ -171,6 +175,9 @@ if is_sagemaker_mp_enabled():
 
     from .trainer_pt_utils import smp_forward_backward, smp_forward_only, smp_gather, smp_nested_concat
 
+if is_training_run_on_sagemaker():
+    logging.add_handler(StreamHandler(sys.stdout))
+
 
 if TYPE_CHECKING:
     import optuna
@@ -199,16 +206,16 @@ class Trainer:
             The function to use to form a batch from a list of elements of :obj:`train_dataset` or :obj:`eval_dataset`.
             Will default to :func:`~transformers.default_data_collator` if no ``tokenizer`` is provided, an instance of
             :func:`~transformers.DataCollatorWithPadding` otherwise.
-        train_dataset (:obj:`torch.utils.data.Dataset` or :obj:`torch.utils.data.IterableDataset`, `optional`):
+        train_dataset (:obj:`torch.utils.data.dataset.Dataset` or :obj:`torch.utils.data.dataset.IterableDataset`, `optional`):
             The dataset to use for training. If it is an :obj:`datasets.Dataset`, columns not accepted by the
             ``model.forward()`` method are automatically removed.
 
-            Note that if it's a :obj:`torch.utils.data.IterableDataset` with some randomization and you are training in
-            a distributed fashion, your iterable dataset should either use a internal attribute :obj:`generator` that
-            is a :obj:`torch.Generator` for the randomization that must be identical on all processes (and the Trainer
-            will manually set the seed of this :obj:`generator` at each epoch) or have a :obj:`set_epoch()` method that
-            internally sets the seed of the RNGs used.
-        eval_dataset (:obj:`torch.utils.data.Dataset`, `optional`):
+            Note that if it's a :obj:`torch.utils.data.dataset.IterableDataset` with some randomization and you are
+            training in a distributed fashion, your iterable dataset should either use a internal attribute
+            :obj:`generator` that is a :obj:`torch.Generator` for the randomization that must be identical on all
+            processes (and the Trainer will manually set the seed of this :obj:`generator` at each epoch) or have a
+            :obj:`set_epoch()` method that internally sets the seed of the RNGs used.
+        eval_dataset (:obj:`torch.utils.data.dataset.Dataset`, `optional`):
              The dataset to use for evaluation. If it is an :obj:`datasets.Dataset`, columns not accepted by the
              ``model.forward()`` method are automatically removed.
         tokenizer (:class:`PreTrainedTokenizerBase`, `optional`):
@@ -357,7 +364,7 @@ class Trainer:
         self.tokenizer = tokenizer
 
         if self.place_model_on_device:
-            self._move_model_to_device(model, args.device)
+            model = model.to(args.device)
 
         # Force n_gpu to 1 to avoid DataParallel as MP will manage the GPUs
         if self.is_model_parallel:
@@ -498,12 +505,6 @@ class Trainer:
         """
         self.callback_handler.remove_callback(callback)
 
-    def _move_model_to_device(self, model, device):
-        model = model.to(device)
-        # Moving a model to an XLA device disconnects the tied weights, so we have to retie them.
-        if self.args.parallel_mode == ParallelMode.TPU and hasattr(model, "tie_weights"):
-            model.tie_weights()
-
     def _remove_unused_columns(self, dataset: "datasets.Dataset", description: Optional[str] = None):
         if not self.args.remove_unused_columns:
             return dataset
@@ -530,7 +531,7 @@ class Trainer:
         else:
             return dataset.remove_columns(ignored_columns)
 
-    def _get_train_sampler(self) -> Optional[torch.utils.data.Sampler]:
+    def _get_train_sampler(self) -> Optional[torch.utils.data.sampler.Sampler]:
         if not isinstance(self.train_dataset, collections.abc.Sized):
             return None
 
@@ -610,7 +611,7 @@ class Trainer:
         if is_datasets_available() and isinstance(train_dataset, datasets.Dataset):
             train_dataset = self._remove_unused_columns(train_dataset, description="training")
 
-        if isinstance(train_dataset, torch.utils.data.IterableDataset):
+        if isinstance(train_dataset, torch.utils.data.dataset.IterableDataset):
             if self.args.world_size > 1:
                 train_dataset = IterableDatasetShard(
                     train_dataset,
@@ -640,7 +641,7 @@ class Trainer:
             pin_memory=self.args.dataloader_pin_memory,
         )
 
-    def _get_eval_sampler(self, eval_dataset: Dataset) -> Optional[torch.utils.data.Sampler]:
+    def _get_eval_sampler(self, eval_dataset: Dataset) -> Optional[torch.utils.data.sampler.Sampler]:
         # Deprecated code
         if self.args.use_legacy_prediction_loop:
             if is_torch_tpu_available():
@@ -676,7 +677,7 @@ class Trainer:
         Subclass and override this method if you want to inject some custom behavior.
 
         Args:
-            eval_dataset (:obj:`torch.utils.data.Dataset`, `optional`):
+            eval_dataset (:obj:`torch.utils.data.dataset.Dataset`, `optional`):
                 If provided, will override :obj:`self.eval_dataset`. If it is an :obj:`datasets.Dataset`, columns not
                 accepted by the ``model.forward()`` method are automatically removed. It must implement :obj:`__len__`.
         """
@@ -687,7 +688,7 @@ class Trainer:
         if is_datasets_available() and isinstance(eval_dataset, datasets.Dataset):
             eval_dataset = self._remove_unused_columns(eval_dataset, description="evaluation")
 
-        if isinstance(eval_dataset, torch.utils.data.IterableDataset):
+        if isinstance(eval_dataset, torch.utils.data.dataset.IterableDataset):
             if self.args.world_size > 1:
                 eval_dataset = IterableDatasetShard(
                     eval_dataset,
@@ -723,14 +724,14 @@ class Trainer:
         Subclass and override this method if you want to inject some custom behavior.
 
         Args:
-            test_dataset (:obj:`torch.utils.data.Dataset`, `optional`):
+            test_dataset (:obj:`torch.utils.data.dataset.Dataset`, `optional`):
                 The test dataset to use. If it is an :obj:`datasets.Dataset`, columns not accepted by the
                 ``model.forward()`` method are automatically removed. It must implement :obj:`__len__`.
         """
         if is_datasets_available() and isinstance(test_dataset, datasets.Dataset):
             test_dataset = self._remove_unused_columns(test_dataset, description="test")
 
-        if isinstance(test_dataset, torch.utils.data.IterableDataset):
+        if isinstance(test_dataset, torch.utils.data.dataset.IterableDataset):
             if self.args.world_size > 1:
                 test_dataset = IterableDatasetShard(
                     test_dataset,
@@ -768,7 +769,7 @@ class Trainer:
         and/or :obj:`create_scheduler`) in a subclass.
         """
         self.create_optimizer()
-        self.create_scheduler(num_training_steps=num_training_steps, optimizer=self.optimizer)
+        self.create_scheduler(num_training_steps)
 
     def create_optimizer(self):
         """
@@ -813,24 +814,26 @@ class Trainer:
         if is_sagemaker_mp_enabled():
             self.optimizer = smp.DistributedOptimizer(self.optimizer)
 
-        return self.optimizer
-
-    def create_scheduler(self, num_training_steps: int, optimizer: torch.optim.Optimizer = None):
+    def create_scheduler(self, num_training_steps: int):
         """
-        Setup the scheduler. The optimizer of the trainer must have been set up either before this method is called or
-        passed as an argument.
+        Setup the scheduler. The optimizer of the trainer must have been set up before this method is called.
 
         Args:
             num_training_steps (int): The number of training steps to do.
         """
         if self.lr_scheduler is None:
+            warmup_steps = (
+                self.args.warmup_steps
+                if self.args.warmup_steps > 0
+                else math.ceil(num_training_steps * self.args.warmup_ratio)
+            )
+
             self.lr_scheduler = get_scheduler(
                 self.args.lr_scheduler_type,
-                optimizer=self.optimizer if optimizer is None else optimizer,
-                num_warmup_steps=self.args.get_warmup_steps(num_training_steps),
+                self.optimizer,
+                num_warmup_steps=warmup_steps,
                 num_training_steps=num_training_steps,
             )
-        return self.lr_scheduler
 
     def num_examples(self, dataloader: DataLoader) -> int:
         """
@@ -854,10 +857,9 @@ class Trainer:
 
         for key, value in params.items():
             if not hasattr(self.args, key):
-                logger.warn(
+                raise AttributeError(
                     f"Trying to set {key} in the hyperparameter search but there is no corresponding field in `TrainingArguments`."
                 )
-                continue
             old_attr = getattr(self.args, key, None)
             # Casting value to the proper type
             if old_attr is not None:
@@ -1008,7 +1010,6 @@ class Trainer:
             kwargs:
                 Additional keyword arguments used to hide deprecated arguments
         """
-        resume_from_checkpoint = None if not resume_from_checkpoint else resume_from_checkpoint
 
         # memory metrics - must set up as early as possible
         self._memory_tracker.start()
@@ -1020,7 +1021,7 @@ class Trainer:
         # do_train is not a reliable argument, as it might not be set and .train() still called, so
         # the following is a workaround:
         if args.fp16_full_eval and not args.do_train:
-            self._move_model_to_device(self.model, args.device)
+            self.model = self.model.to(args.device)
 
         if "model_path" in kwargs:
             resume_from_checkpoint = kwargs.pop("model_path")
@@ -1075,13 +1076,10 @@ class Trainer:
                 # If the model is on the GPU, it still works!
                 self._load_state_dict_in_model(state_dict)
 
-                # release memory
-                del state_dict
-
         # If model was re-initialized, put it on the right device and update self.model_wrapped
         if model_reloaded:
             if self.place_model_on_device:
-                self._move_model_to_device(self.model, args.device)
+                self.model = self.model.to(args.device)
             self.model_wrapped = self.model
 
         # Keeping track whether we can can len() on the dataset or not
@@ -1119,14 +1117,7 @@ class Trainer:
             num_train_samples = args.max_steps * total_train_batch_size
 
         if DebugOption.UNDERFLOW_OVERFLOW in self.args.debug:
-            if self.args.n_gpu > 1:
-                # nn.DataParallel(model) replicates the model, creating new variables and module
-                # references registered here no longer work on other gpus, breaking the module
-                raise ValueError(
-                    "Currently --debug underflow_overflow is not supported under DP. Please use DDP (torch.distributed.launch)."
-                )
-            else:
-                debug_overflow = DebugUnderflowOverflow(self.model)  # noqa
+            debug_overflow = DebugUnderflowOverflow(self.model)  # noqa
 
         delay_optimizer_creation = self.sharded_ddp is not None and self.sharded_ddp != ShardedDDPOption.SIMPLE
         if args.deepspeed:
@@ -1338,8 +1329,6 @@ class Trainer:
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
 
                     self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
-                else:
-                    self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 
                 if self.control.should_epoch_stop or self.control.should_training_stop:
                     break
@@ -1415,9 +1404,7 @@ class Trainer:
         load_result = self.model.load_state_dict(state_dict, strict=False)
 
         if len(load_result.missing_keys) != 0:
-            if self.model._keys_to_ignore_on_save is not None and set(load_result.missing_keys) == set(
-                self.model._keys_to_ignore_on_save
-            ):
+            if set(load_result.missing_keys) == set(self.model._keys_to_ignore_on_save):
                 self.model.tie_weights()
             else:
                 logger.warn(f"There were missing keys in the checkpoint model loaded: {load_result.missing_keys}.")
@@ -1727,30 +1714,22 @@ class Trainer:
         self.state.log_history.append(output)
         self.control = self.callback_handler.on_log(self.args, self.state, self.control, logs)
 
-    def _prepare_input(self, data: Union[torch.Tensor, Any]) -> Union[torch.Tensor, Any]:
-        """
-        Prepares one :obj:`data` before feeding it to the model, be it a tensor or a nested list/dictionary of tensors.
-        """
-        if isinstance(data, dict):
-            return type(data)(**{k: self._prepare_input(v) for k, v in data.items()})
-        elif isinstance(data, (tuple, list)):
-            return type(data)(self._prepare_input(v) for v in data)
-        elif isinstance(data, torch.Tensor):
-            kwargs = dict(device=self.args.device)
-            if self.deepspeed and data.dtype != torch.int64:
-                # NLP models inputs are int64 and those get adjusted to the right dtype of the
-                # embedding. Other models such as wav2vec2's inputs are already float and thus
-                # may need special handling to match the dtypes of the model
-                kwargs.update(dict(dtype=self.args.hf_deepspeed_config.dtype()))
-            return data.to(**kwargs)
-        return data
-
     def _prepare_inputs(self, inputs: Dict[str, Union[torch.Tensor, Any]]) -> Dict[str, Union[torch.Tensor, Any]]:
         """
         Prepare :obj:`inputs` before feeding them to the model, converting them to tensors if they are not already and
         handling potential state.
         """
-        inputs = self._prepare_input(inputs)
+        for k, v in inputs.items():
+            if isinstance(v, torch.Tensor):
+                kwargs = dict(device=self.args.device)
+                if self.deepspeed and inputs[k].dtype != torch.int64:
+                    # NLP models inputs are int64 and those get adjusted to the right dtype of the
+                    # embedding. Other models such as wav2vec2's inputs are already float and thus
+                    # may need special handling to match the dtypes of the model
+                    kwargs.update(dict(dtype=self.args.hf_deepspeed_config.dtype()))
+
+                inputs[k] = v.to(**kwargs)
+
         if self.args.past_index >= 0 and self._past is not None:
             inputs["mems"] = self._past
 
@@ -2215,9 +2194,6 @@ class Trainer:
             observed_batch_size = find_batch_size(inputs)
             if observed_batch_size is not None:
                 observed_num_examples += observed_batch_size
-                # For batch samplers, batch_size is not known by the dataloader in advance.
-                if batch_size is None:
-                    batch_size = observed_batch_size
 
             # Prediction step
             loss, logits, labels = self.prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
@@ -2534,11 +2510,10 @@ class Trainer:
         Returns:
             The url of the commit of your model in the given repository.
         """
+        if not self.args.should_save:
+            return
 
-        if self.args.should_save:
-            self.create_model_card(model_name=self.args.push_to_hub_model_id, **kwargs)
-        # Needs to be executed on all processes for TPU training, but will only save on the processed determined by
-        # self.args.should_save.
+        self.create_model_card(model_name=self.args.push_to_hub_model_id, **kwargs)
         self.save_model()
 
         # Only push from one node.

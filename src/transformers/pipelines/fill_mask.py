@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Optional, Union
 
 import numpy as np
 
@@ -9,8 +9,6 @@ from ..utils import logging
 from .base import PIPELINE_INIT_ARGS, ArgumentHandler, Pipeline, PipelineException
 
 
-GenericTensor = Union[List["GenericTensor"], "torch.Tensor", "tf.Tensor"]
-
 if TYPE_CHECKING:
     from ..modeling_tf_utils import TFPreTrainedModel
     from ..modeling_utils import PreTrainedModel
@@ -18,7 +16,7 @@ if TYPE_CHECKING:
 if is_tf_available():
     import tensorflow as tf
 
-    from ..models.auto.modeling_tf_auto import TF_MODEL_FOR_MASKED_LM_MAPPING
+    from ..models.auto.modeling_tf_auto import TF_MODEL_WITH_LM_HEAD_MAPPING
 
 if is_torch_available():
     import torch
@@ -32,13 +30,7 @@ logger = logging.get_logger(__name__)
 @add_end_docstrings(
     PIPELINE_INIT_ARGS,
     r"""
-        top_k (:obj:`int`, defaults to 5):
-            The number of predictions to return.
-        targets (:obj:`str` or :obj:`List[str]`, `optional`):
-            When passed, the model will limit the scores to the passed targets instead of looking up in the whole
-            vocab. If the provided targets are not in the model vocab, they will be tokenized and the first resulting
-            token will be used (with a warning, and that might be slower).
-
+        top_k (:obj:`int`, defaults to 5): The number of predictions to return.
     """,
 )
 class FillMaskPipeline(Pipeline):
@@ -67,7 +59,6 @@ class FillMaskPipeline(Pipeline):
         args_parser: ArgumentHandler = None,
         device: int = -1,
         top_k=5,
-        targets=None,
         task: str = "",
     ):
         super().__init__(
@@ -81,27 +72,10 @@ class FillMaskPipeline(Pipeline):
             task=task,
         )
 
-        self.check_model_type(
-            TF_MODEL_FOR_MASKED_LM_MAPPING if self.framework == "tf" else MODEL_FOR_MASKED_LM_MAPPING
-        )
+        self.check_model_type(TF_MODEL_WITH_LM_HEAD_MAPPING if self.framework == "tf" else MODEL_FOR_MASKED_LM_MAPPING)
         self.top_k = top_k
-        self.targets = targets
-        if self.tokenizer.mask_token_id is None:
-            raise PipelineException(
-                "fill-mask", self.model.base_model_prefix, "The tokenizer does not define a `mask_token`."
-            )
 
-    def get_masked_index(self, input_ids: GenericTensor) -> np.ndarray:
-        if self.framework == "tf":
-            masked_index = tf.where(input_ids == self.tokenizer.mask_token_id).numpy()
-        elif self.framework == "pt":
-            masked_index = torch.nonzero(input_ids == self.tokenizer.mask_token_id, as_tuple=False)
-        else:
-            raise ValueError("Unsupported framework")
-        return masked_index
-
-    def _ensure_exactly_one_mask_token(self, input_ids: GenericTensor) -> np.ndarray:
-        masked_index = self.get_masked_index(input_ids)
+    def ensure_exactly_one_mask_token(self, masked_index: np.ndarray):
         numel = np.prod(masked_index.shape)
         if numel > 1:
             raise PipelineException(
@@ -116,25 +90,7 @@ class FillMaskPipeline(Pipeline):
                 f"No mask_token ({self.tokenizer.mask_token}) found on the input",
             )
 
-    def ensure_exactly_one_mask_token(self, model_inputs: GenericTensor):
-        if isinstance(model_inputs, list):
-            for model_input in model_inputs:
-                self._ensure_exactly_one_mask_token(model_input["input_ids"][0])
-        else:
-            for input_ids in model_inputs["input_ids"]:
-                self._ensure_exactly_one_mask_token(input_ids)
-
-    def get_model_inputs(self, inputs, *args, **kwargs) -> Dict:
-        if isinstance(inputs, list) and self.tokenizer.pad_token is None:
-            model_inputs = []
-            for input_ in inputs:
-                model_input = self._parse_and_tokenize(input_, padding=False, *args, **kwargs)
-                model_inputs.append(model_input)
-        else:
-            model_inputs = self._parse_and_tokenize(inputs, *args, **kwargs)
-        return model_inputs
-
-    def __call__(self, inputs, *args, targets=None, top_k: Optional[int] = None, **kwargs):
+    def __call__(self, *args, targets=None, top_k: Optional[int] = None, **kwargs):
         """
         Fill the masked token in the text(s) given as inputs.
 
@@ -156,27 +112,16 @@ class FillMaskPipeline(Pipeline):
             - **token** (:obj:`int`) -- The predicted token id (to replace the masked one).
             - **token** (:obj:`str`) -- The predicted token (to replace the masked one).
         """
-        model_inputs = self.get_model_inputs(inputs, *args, **kwargs)
-        self.ensure_exactly_one_mask_token(model_inputs)
-        if isinstance(model_inputs, list):
-            outputs = []
-            for model_input in model_inputs:
-                output = self._forward(model_input, return_tensors=True)
-                outputs.append(output)
-
-            batch_size = len(model_inputs)
-        else:
-            outputs = self._forward(model_inputs, return_tensors=True)
-            batch_size = outputs.shape[0] if self.framework == "tf" else outputs.size(0)
+        inputs = self._parse_and_tokenize(*args, **kwargs)
+        outputs = self._forward(inputs, return_tensors=True)
 
         # top_k must be defined
         if top_k is None:
             top_k = self.top_k
 
         results = []
+        batch_size = outputs.shape[0] if self.framework == "tf" else outputs.size(0)
 
-        if targets is None and self.targets is not None:
-            targets = self.targets
         if targets is not None:
             if isinstance(targets, str):
                 targets = [targets]
@@ -222,21 +167,16 @@ class FillMaskPipeline(Pipeline):
                 top_k = target_ids.shape[0]
 
         for i in range(batch_size):
-            if isinstance(model_inputs, list):
-                input_ids = model_inputs[i]["input_ids"][0]
-            else:
-                input_ids = model_inputs["input_ids"][i]
+            input_ids = inputs["input_ids"][i]
             result = []
 
             if self.framework == "tf":
                 masked_index = tf.where(input_ids == self.tokenizer.mask_token_id).numpy()
 
                 # Fill mask pipeline supports only one ${mask_token} per sample
+                self.ensure_exactly_one_mask_token(masked_index)
 
-                if isinstance(outputs, list):
-                    logits = outputs[i][0, masked_index.item(), :]
-                else:
-                    logits = outputs[i, masked_index.item(), :]
+                logits = outputs[i, masked_index.item(), :]
                 probs = tf.nn.softmax(logits)
                 if targets is not None:
                     probs = tf.gather_nd(probs, tf.reshape(target_ids, (-1, 1)))
@@ -245,12 +185,11 @@ class FillMaskPipeline(Pipeline):
                 values, predictions = topk.values.numpy(), topk.indices.numpy()
             else:
                 masked_index = torch.nonzero(input_ids == self.tokenizer.mask_token_id, as_tuple=False)
-                # Fill mask pipeline supports only one ${mask_token} per sample
 
-                if isinstance(outputs, list):
-                    logits = outputs[i][0, masked_index.item(), :]
-                else:
-                    logits = outputs[i, masked_index.item(), :]
+                # Fill mask pipeline supports only one ${mask_token} per sample
+                self.ensure_exactly_one_mask_token(masked_index.numpy())
+
+                logits = outputs[i, masked_index.item(), :]
                 probs = logits.softmax(dim=0)
                 if targets is not None:
                     probs = probs[..., target_ids]

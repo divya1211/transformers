@@ -29,15 +29,6 @@ class BertGenerationTokenizer:
         requires_backends(cls, ["sentencepiece"])
 
 
-class BigBirdTokenizer:
-    def __init__(self, *args, **kwargs):
-        requires_backends(self, ["sentencepiece"])
-
-    @classmethod
-    def from_pretrained(cls, *args, **kwargs):
-        requires_backends(cls, ["sentencepiece"])
-
-
 class CamembertTokenizer:
     def __init__(self, *args, **kwargs):
         requires_backends(self, ["sentencepiece"])
@@ -111,15 +102,6 @@ class PegasusTokenizer:
 
 
 class ReformerTokenizer:
-    def __init__(self, *args, **kwargs):
-        requires_backends(self, ["sentencepiece"])
-
-    @classmethod
-    def from_pretrained(cls, *args, **kwargs):
-        requires_backends(cls, ["sentencepiece"])
-
-
-class RemBertTokenizer:
     def __init__(self, *args, **kwargs):
         requires_backends(self, ["sentencepiece"])
 

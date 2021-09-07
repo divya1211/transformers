@@ -933,10 +933,7 @@ class TFRobertaClassificationHead(tf.keras.layers.Layer):
             activation="tanh",
             name="dense",
         )
-        classifier_dropout = (
-            config.classifier_dropout if config.classifier_dropout is not None else config.hidden_dropout_prob
-        )
-        self.dropout = tf.keras.layers.Dropout(classifier_dropout)
+        self.dropout = tf.keras.layers.Dropout(config.hidden_dropout_prob)
         self.out_proj = tf.keras.layers.Dense(
             config.num_labels, kernel_initializer=get_initializer(config.initializer_range), name="out_proj"
         )
@@ -1209,10 +1206,7 @@ class TFRobertaForTokenClassification(TFRobertaPreTrainedModel, TFTokenClassific
         self.num_labels = config.num_labels
 
         self.roberta = TFRobertaMainLayer(config, add_pooling_layer=False, name="roberta")
-        classifier_dropout = (
-            config.classifier_dropout if config.classifier_dropout is not None else config.hidden_dropout_prob
-        )
-        self.dropout = tf.keras.layers.Dropout(classifier_dropout)
+        self.dropout = tf.keras.layers.Dropout(config.hidden_dropout_prob)
         self.classifier = tf.keras.layers.Dense(
             config.num_labels, kernel_initializer=get_initializer(config.initializer_range), name="classifier"
         )

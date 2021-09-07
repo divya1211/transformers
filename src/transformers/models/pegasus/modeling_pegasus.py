@@ -46,7 +46,6 @@ from .configuration_pegasus import PegasusConfig
 
 logger = logging.get_logger(__name__)
 
-_CHECKPOINT_FOR_DOC = "google/pegasus-large"
 _CONFIG_FOR_DOC = "PegasusConfig"
 _TOKENIZER_FOR_DOC = "PegasusTokenizer"
 
